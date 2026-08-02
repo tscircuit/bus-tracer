@@ -1,0 +1,60 @@
+<svg width="640" height="640" viewBox="0 0 640 640" xmlns="http://www.w3.org/2000/svg"><rect width="100%" height="100%" fill="white"/><g><polyline data-points="7.833333333333336,-2.5 7.833333333333336,-8.333333333333332" data-type="line" data-label="usb-otg coarse corridor" points="488.2828282828283,349.27272727272725 488.2828282828283,398.7676767676768" fill="none" stroke="rgba(0, 128, 0, 0.6)" stroke-width="6.236363636363636" stroke-dasharray="0.2 0.2"/></g><g><polyline data-points="7.833333333333336,-8.333333333333332 1.1666666666666679,-15" data-type="line" data-label="usb-otg coarse corridor" points="488.2828282828283,398.7676767676768 431.7171717171717,455.3333333333333" fill="none" stroke="rgba(0, 128, 0, 0.6)" stroke-width="6.236363636363636" stroke-dasharray="0.2 0.2"/></g><g><polyline data-points="1.1666666666666679,-15 1.1666666666666679,-15.833333333333332" data-type="line" data-label="usb-otg coarse corridor" points="431.7171717171717,455.3333333333333 431.7171717171717,462.4040404040404" fill="none" stroke="rgba(0, 128, 0, 0.6)" stroke-width="6.236363636363636" stroke-dasharray="0.2 0.2"/></g><g><polyline data-points="1.1666666666666679,-15.833333333333332 0,-16.9249851" data-type="line" data-label="usb-otg coarse corridor" points="431.7171717171717,462.4040404040404 421.8181818181818,471.6665402424243" fill="none" stroke="rgba(0, 128, 0, 0.6)" stroke-width="6.236363636363636" stroke-dasharray="0.2 0.2"/></g><g><rect data-type="rect" data-label="U1" data-x="0" data-y="0" x="359.030303030303" y="265.27272727272725" width="125.57575757575762" height="125.57575757575762" fill="rgba(255, 0, 0, 0.984375)" stroke="black" stroke-width="0.11785714285714287"/></g><g><rect data-type="rect" data-label="U2" data-x="17" data-y="-4" x="532.121212121212" y="328.06060606060606" width="67.87878787878788" height="67.87878787878788" fill="rgba(255, 0, 0, 0.984375)" stroke="black" stroke-width="0.11785714285714287"/></g><g><rect data-type="rect" data-label="J1" data-x="0" data-y="-20" x="400.6060606060606" y="476.5454545454545" width="42.42424242424238" height="42.42424242424249" fill="rgba(255, 0, 0, 0.984375)" stroke="black" stroke-width="0.11785714285714287"/></g><g><rect data-type="rect" data-label="J2" data-x="0" data-y="15.5" x="360.3030303030303" y="177.4545454545455" width="123.030303030303" height="38.18181818181816" fill="rgba(255, 0, 0, 0.984375)" stroke="black" stroke-width="0.11785714285714287"/></g><g><rect data-type="rect" data-label="source_trace_216, source_trace_216-start" data-x="7.65" data-y="-1.625" x="486.0909090909091" y="341.21212121212125" width="1.272727272727309" height="1.272727272727309" fill="rgba(255, 0, 0, 0.5)" stroke="black" stroke-width="0.11785714285714287"/></g><g><rect data-type="rect" data-label="source_trace_216, source_trace_216-end" data-x="0.2475" data-y="-16.9249851" x="423.28181818181815" y="471.03017660606065" width="1.272727272727309" height="1.272727272727252" fill="rgba(255, 0, 0, 0.5)" stroke="black" stroke-width="0.11785714285714287"/></g><g><rect data-type="rect" data-label="source_trace_217, source_trace_217-start" data-x="7.65" data-y="-5.85" x="486.0909090909091" y="377.06060606060606" width="1.272727272727309" height="1.272727272727252" fill="rgba(255, 0, 0, 0.5)" stroke="black" stroke-width="0.11785714285714287"/></g><g><rect data-type="rect" data-label="source_trace_217, source_trace_217-end" data-x="-0.0825" data-y="-16.9249851" x="420.4818181818182" y="471.03017660606065" width="1.272727272727252" height="1.272727272727252" fill="rgba(255, 0, 0, 0.5)" stroke="black" stroke-width="0.11785714285714287"/></g><g><rect data-type="rect" data-label="source_trace_218, source_trace_218-start" data-x="7.65" data-y="-1.3" x="486.0909090909091" y="338.4545454545454" width="1.272727272727309" height="1.272727272727309" fill="rgba(255, 0, 0, 0.5)" stroke="black" stroke-width="0.11785714285714287"/></g><g><rect data-type="rect" data-label="source_trace_218, source_trace_218-end" data-x="0.0825" data-y="-16.9249851" x="421.8818181818182" y="471.03017660606065" width="1.272727272727252" height="1.272727272727252" fill="rgba(255, 0, 0, 0.5)" stroke="black" stroke-width="0.11785714285714287"/></g><g><rect data-type="rect" data-label="source_trace_219, source_trace_219-start" data-x="7.65" data-y="-1.95" x="486.0909090909091" y="343.969696969697" width="1.272727272727309" height="1.272727272727252" fill="rgba(255, 0, 0, 0.5)" stroke="black" stroke-width="0.11785714285714287"/></g><g><rect data-type="rect" data-label="source_trace_219, source_trace_219-end" data-x="-0.2475" data-y="-16.9249851" x="419.0818181818181" y="471.03017660606065" width="1.272727272727309" height="1.272727272727252" fill="rgba(255, 0, 0, 0.5)" stroke="black" stroke-width="0.11785714285714287"/></g><circle data-type="circle" data-label="" data-x="7.65" data-y="-2.68125" cx="486.72727272727275" cy="350.81060606060606" r="3.118181818181818" fill="rgba(255, 0, 255, 0.5)" stroke="black" stroke-width="0.11785714285714287"/><circle data-type="circle" data-label="" data-x="7.833333333333336" data-y="-2.5" cx="488.2828282828283" cy="349.27272727272725" r="3.118181818181818" fill="rgba(255, 0, 255, 0.5)" stroke="black" stroke-width="0.11785714285714287"/><circle data-type="circle" data-label="" data-x="7.833333333333336" data-y="-2.5" cx="488.2828282828283" cy="349.27272727272725" r="3.118181818181818" fill="rgba(255, 0, 255, 0.5)" stroke="black" stroke-width="0.11785714285714287"/><text data-type="text" data-label="No shared clear via region near (7.833333333333336, -2.5) for bus &quot;usb-otg&quot;" data-x="-27" data-y="24" x="192.72727272727275" y="124.42424242424244" fill="red" font-size="6.787878787878788" font-family="sans-serif" text-anchor="middle" dominant-baseline="central">No shared clear via region near (7.833333333333336, -2.5) for bus "usb-otg"</text><g><circle data-type="point" data-label="source_trace_216
+source_trace_216
+inner3" data-x="7.65" data-y="-1.625" cx="486.72727272727275" cy="341.8484848484849" r="3" fill="hsl(0, 100%, 50%)"/></g><g><circle data-type="point" data-label="source_trace_216
+source_trace_216
+top" data-x="0.2475" data-y="-16.9249851" cx="423.91818181818184" cy="471.6665402424243" r="3" fill="hsl(0, 100%, 50%)"/></g><g><circle data-type="point" data-label="source_trace_217
+source_trace_217
+inner3" data-x="7.65" data-y="-5.85" cx="486.72727272727275" cy="377.6969696969697" r="3" fill="hsl(85, 100%, 50%)"/></g><g><circle data-type="point" data-label="source_trace_217
+source_trace_217
+top" data-x="-0.0825" data-y="-16.9249851" cx="421.1181818181818" cy="471.6665402424243" r="3" fill="hsl(85, 100%, 50%)"/></g><g><circle data-type="point" data-label="source_trace_218
+source_trace_218
+inner3" data-x="7.65" data-y="-1.3" cx="486.72727272727275" cy="339.09090909090907" r="3" fill="hsl(170, 100%, 50%)"/></g><g><circle data-type="point" data-label="source_trace_218
+source_trace_218
+top" data-x="0.0825" data-y="-16.9249851" cx="422.5181818181818" cy="471.6665402424243" r="3" fill="hsl(170, 100%, 50%)"/></g><g><circle data-type="point" data-label="source_trace_219
+source_trace_219
+inner3" data-x="7.65" data-y="-1.95" cx="486.72727272727275" cy="344.6060606060606" r="3" fill="hsl(255, 100%, 50%)"/></g><g><circle data-type="point" data-label="source_trace_219
+source_trace_219
+top" data-x="-0.2475" data-y="-16.9249851" cx="419.7181818181818" cy="471.6665402424243" r="3" fill="hsl(255, 100%, 50%)"/></g><g id="crosshair" style="display: none"><line id="crosshair-h" y1="0" y2="640" stroke="#666" stroke-width="0.5"/><line id="crosshair-v" x1="0" x2="640" stroke="#666" stroke-width="0.5"/><text id="coordinates" font-family="monospace" font-size="12" fill="#666"></text></g><script><![CDATA[
+              document.currentScript.parentElement.addEventListener('mousemove', (e) => {
+                const svg = e.currentTarget;
+                const rect = svg.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+                const crosshair = svg.getElementById('crosshair');
+                const h = svg.getElementById('crosshair-h');
+                const v = svg.getElementById('crosshair-v');
+                const coords = svg.getElementById('coordinates');
+
+                crosshair.style.display = 'block';
+                h.setAttribute('x1', '0');
+                h.setAttribute('x2', '640');
+                h.setAttribute('y1', y);
+                h.setAttribute('y2', y);
+                v.setAttribute('x1', x);
+                v.setAttribute('x2', x);
+                v.setAttribute('y1', '0');
+                v.setAttribute('y2', '640');
+
+                // Calculate real coordinates using inverse transformation
+                const matrix = {"a":8.484848484848484,"c":0,"e":421.8181818181818,"b":0,"d":-8.484848484848484,"f":328.06060606060606};
+                // Manually invert and apply the affine transform
+                // Since we only use translate and scale, we can directly compute:
+                // x' = (x - tx) / sx
+                // y' = (y - ty) / sy
+                const sx = matrix.a;
+                const sy = matrix.d;
+                const tx = matrix.e;
+                const ty = matrix.f;
+                const realPoint = {
+                  x: (x - tx) / sx,
+                  y: (y - ty) / sy // Flip y back since we used negative scale
+                }
+
+                coords.textContent = `(${realPoint.x.toFixed(2)}, ${realPoint.y.toFixed(2)})`;
+                coords.setAttribute('x', (x + 5).toString());
+                coords.setAttribute('y', (y - 5).toString());
+              });
+              document.currentScript.parentElement.addEventListener('mouseleave', () => {
+                document.currentScript.parentElement.getElementById('crosshair').style.display = 'none';
+              });
+            ]]></script></svg>
