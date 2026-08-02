@@ -1,4 +1,6 @@
+import { expect } from "bun:test"
 import { BusTracer, type BusTracerInput } from "lib/bus-tracer"
+import { countSameLayerTraceCrossings } from "lib/geometry"
 import { visualizeBusTracer } from "lib/visualize"
 
 export const solveRk3326Repro = (input: BusTracerInput) => {
@@ -13,6 +15,25 @@ export const solveRk3326Repro = (input: BusTracerInput) => {
         : new Error(String(caughtError))
   }
   return { solver, error }
+}
+
+export const expectRk3326ReproToRoute = (
+  input: BusTracerInput,
+  expectedTraceCount: number,
+) => {
+  const result = solveRk3326Repro(input)
+  expect(result.error).toBeUndefined()
+  expect(result.solver.solved).toBeTrue()
+  const traces = result.solver.getOutput().traces
+  expect(traces).toHaveLength(expectedTraceCount)
+  expect(
+    traces.map(
+      (trace) =>
+        trace.route.filter((point) => point.route_type === "via").length,
+    ),
+  ).toEqual(Array(expectedTraceCount).fill(3))
+  expect(countSameLayerTraceCrossings(traces)).toBe(0)
+  return result
 }
 
 export const visualizeRk3326Repro = (
