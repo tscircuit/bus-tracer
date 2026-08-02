@@ -1,0 +1,6 @@
+# The tscircuit GitHub-vanilla package style intentionally avoids lockfiles.
+[install.lockfile]
+save = false
+
+[test]
+preload = ["./tests/fixtures/preload.ts"]

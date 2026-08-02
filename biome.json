@@ -1,0 +1,48 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.5/schema.json",
+  "assist": { "actions": { "source": { "organizeImports": "on" } } },
+  "formatter": { "enabled": true, "indentStyle": "space" },
+  "files": {
+    "includes": [
+      "**",
+      "!**/.vercel",
+      "!**/cosmos-export",
+      "!**/dist",
+      "!**/package.json",
+      "!**/__snapshots__"
+    ]
+  },
+  "javascript": {
+    "formatter": {
+      "jsxQuoteStyle": "double",
+      "quoteProperties": "asNeeded",
+      "trailingCommas": "all",
+      "semicolons": "asNeeded",
+      "arrowParentheses": "always",
+      "bracketSpacing": true,
+      "bracketSameLine": false
+    }
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "preset": "recommended",
+      "suspicious": { "noExplicitAny": "off" },
+      "complexity": { "noForEach": "error", "useLiteralKeys": "off" },
+      "correctness": { "useExhaustiveDependencies": "off" },
+      "style": {
+        "useSingleVarDeclarator": "error",
+        "noParameterAssign": "off",
+        "noNonNullAssertion": "off",
+        "useFilenamingConvention": {
+          "level": "error",
+          "options": {
+            "strictCase": true,
+            "requireAscii": true,
+            "filenameCases": ["kebab-case", "export"]
+          }
+        }
+      }
+    }
+  }
+}
