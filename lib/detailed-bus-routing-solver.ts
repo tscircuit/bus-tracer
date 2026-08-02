@@ -122,16 +122,36 @@ export class DetailedBusRoutingSolver extends BaseSolver {
       this.options.obstacleMargin ?? this.srj.defaultObstacleMargin ?? 0.1
     const grid =
       this.options.detailGridCellSize ?? Math.max(0.2, coarse.tracePitch / 2)
+    const layerChangeIndices = coarse.centerline.flatMap((point, index) =>
+      index < coarse.centerline.length - 1 &&
+      point.layer !== coarse.centerline[index + 1]!.layer
+        ? [index]
+        : [],
+    )
 
     for (let index = 0; index < coarse.centerline.length - 1; index++) {
       const before = coarse.centerline[index]!
       const after = coarse.centerline[index + 1]!
       if (before.layer === after.layer) continue
 
-      const baseLanePoints = laneGuides.map((guide) => ({
-        x: (guide[index]!.x + guide[index + 1]!.x) / 2,
-        y: (guide[index]!.y + guide[index + 1]!.y) / 2,
-      }))
+      const layerChangePosition = layerChangeIndices.indexOf(index)
+      const terminalPoints =
+        layerChangeIndices.length > 1 && layerChangePosition === 0
+          ? bus.connections.map((connection) => connection.start)
+          : layerChangeIndices.length > 1 &&
+              layerChangePosition === layerChangeIndices.length - 1
+            ? bus.connections.map((connection) => connection.end)
+            : undefined
+      const baseLanePoints = terminalPoints
+        ? getTerminalAlignedViaPoints(
+            { x: before.x, y: before.y },
+            terminalPoints,
+            coarse.tracePitch,
+          )
+        : laneGuides.map((guide) => ({
+            x: (guide[index]!.x + guide[index + 1]!.x) / 2,
+            y: (guide[index]!.y + guide[index + 1]!.y) / 2,
+          }))
       const translations = [{ x: 0, y: 0 }]
       for (let ring = 1; ring <= Math.ceil(2 / grid); ring++) {
         for (let dx = -ring; dx <= ring; dx++) {
@@ -189,10 +209,16 @@ export class DetailedBusRoutingSolver extends BaseSolver {
       this.options.obstacleMargin ?? this.srj.defaultObstacleMargin ?? 0.1
     const detailCellSize =
       this.options.detailGridCellSize ?? Math.max(0.2, coarse.tracePitch / 2)
-    const ignoredIds = getConnectionIds(connection)
+    const hasSharedEscapeAndReturn = countLayerChanges(coarse.centerline) > 1
+    const ignoredIds = hasSharedEscapeAndReturn
+      ? getBusConnectionIds(bus)
+      : getConnectionIds(connection)
     const traceClearance =
       this.options.traceClearance ?? Math.max(this.srj.minTraceWidth, 0.12)
     const extraBlocked = (point: { x: number; y: number }, layer: string) => {
+      if (layer !== connection.start.layer && layer !== connection.end.layer) {
+        return false
+      }
       for (const priorTrace of priorBusTraces) {
         for (let index = 0; index < priorTrace.route.length - 1; index++) {
           const first = priorTrace.route[index]!
@@ -237,32 +263,42 @@ export class DetailedBusRoutingSolver extends BaseSolver {
         searchMargin,
       )
       let path: RoutePoint[]
-      try {
-        path = findGridPath({
-          start: segment.points[0]!,
-          goal: segment.points.at(-1)!,
-          layers: getLayerNames(this.srj.layerCount),
-          bounds: boundedSearch,
-          cellSize: detailCellSize,
-          viaPenalty: 1e6,
-          isBlocked,
-          guide: segment.points,
-          guidePenalty: this.options.fineGuidePenalty ?? 0.08,
-          allowLayerChanges: false,
-        })
-      } catch {
-        path = findGridPath({
-          start: segment.points[0]!,
-          goal: segment.points.at(-1)!,
-          layers: getLayerNames(this.srj.layerCount),
-          bounds: this.srj.bounds,
-          cellSize: detailCellSize,
-          viaPenalty: 1e6,
-          isBlocked,
-          guide: segment.points,
-          guidePenalty: this.options.fineGuidePenalty ?? 0.08,
-          allowLayerChanges: false,
-        })
+      const isTerminalFanout =
+        bus.connections.length > 2 &&
+        layerSegments.length > 2 &&
+        (segmentIndex === 0 || segmentIndex === layerSegments.length - 1)
+      // The shared via rows are parallel to their terminal arrays, so following
+      // this guide exactly preserves lane order through each dense fanout.
+      if (isTerminalFanout) {
+        path = segment.points
+      } else {
+        try {
+          path = findGridPath({
+            start: segment.points[0]!,
+            goal: segment.points.at(-1)!,
+            layers: getLayerNames(this.srj.layerCount),
+            bounds: boundedSearch,
+            cellSize: detailCellSize,
+            viaPenalty: 1e6,
+            isBlocked,
+            guide: segment.points,
+            guidePenalty: this.options.fineGuidePenalty ?? 0.08,
+            allowLayerChanges: false,
+          })
+        } catch {
+          path = findGridPath({
+            start: segment.points[0]!,
+            goal: segment.points.at(-1)!,
+            layers: getLayerNames(this.srj.layerCount),
+            bounds: this.srj.bounds,
+            cellSize: detailCellSize,
+            viaPenalty: 1e6,
+            isBlocked,
+            guide: segment.points,
+            guidePenalty: this.options.fineGuidePenalty ?? 0.08,
+            allowLayerChanges: false,
+          })
+        }
       }
 
       for (const point of path) {
@@ -345,6 +381,27 @@ export class DetailedBusRoutingSolver extends BaseSolver {
 const getViaDiameter = (srj: BusTracerSimpleRouteJson) =>
   srj.min_via_pad_diameter ?? srj.minViaPadDiameter ?? srj.minViaDiameter ?? 0.6
 
+const getTerminalAlignedViaPoints = (
+  center: { x: number; y: number },
+  terminalPoints: RoutePoint[],
+  tracePitch: number,
+) => {
+  const first = terminalPoints[0]!
+  const last = terminalPoints.at(-1)!
+  const dx = last.x - first.x
+  const dy = last.y - first.y
+  const magnitude = Math.hypot(dx, dy) || 1
+  const direction = { x: dx / magnitude, y: dy / magnitude }
+  const middleIndex = (terminalPoints.length - 1) / 2
+  return terminalPoints.map((_, index) => {
+    const offset = (index - middleIndex) * tracePitch
+    return {
+      x: center.x + direction.x * offset,
+      y: center.y + direction.y * offset,
+    }
+  })
+}
+
 const getLaneSignAtBusStart = (bus: ResolvedBus, coarse: CoarseBusRoute) => {
   if (bus.connections.length < 2) return 1
   const start = coarse.centerline[0]!
@@ -375,6 +432,23 @@ const getConnectionIds = (connection: ResolvedBus["connections"][number]) =>
       connection.end.pcbPortId,
     ].filter((id): id is string => Boolean(id)),
   )
+
+const getBusConnectionIds = (bus: ResolvedBus) => {
+  const ids = new Set<string>()
+  for (const connection of bus.connections) {
+    for (const id of getConnectionIds(connection)) ids.add(id)
+  }
+  return ids
+}
+
+const countLayerChanges = (points: RoutePoint[]) =>
+  points
+    .slice(0, -1)
+    .reduce(
+      (count, point, index) =>
+        count + (point.layer === points[index + 1]!.layer ? 0 : 1),
+      0,
+    )
 
 const splitGuideByLayerChanges = (guide: RoutePoint[]) => {
   const segments: Array<{

@@ -130,7 +130,7 @@ export class CoarseBusPathfindingSolver extends BaseSolver {
       this.srj.bounds.maxX - this.srj.bounds.minX,
       this.srj.bounds.maxY - this.srj.bounds.minY,
     )
-    const centerline = findGridPath({
+    let centerline = findGridPath({
       start,
       goal: end,
       layers: getLayerNames(this.srj.layerCount),
@@ -140,6 +140,32 @@ export class CoarseBusPathfindingSolver extends BaseSolver {
       isBlocked,
       allowLayerChanges: this.srj.layerCount > 1,
     })
+    // Keep dense fanouts on their terminal layer while giving the shared bus
+    // trunk an alternate layer with identical escape and return vias per lane.
+    if (
+      bus.connections.length > 2 &&
+      this.srj.layerCount > 1 &&
+      centerline.length > 3 &&
+      countLayerChanges(centerline) === 0
+    ) {
+      const alternateLayer = getLayerNames(this.srj.layerCount).find(
+        (layer) => layer !== centerline[0]!.layer,
+      )!
+      const firstViaIndex = 1
+      const secondViaIndex = centerline.length - 2
+      centerline = centerline.flatMap((point, index) => {
+        if (index === firstViaIndex) {
+          return [point, { ...point, layer: alternateLayer }]
+        }
+        if (index > firstViaIndex && index < secondViaIndex) {
+          return [{ ...point, layer: alternateLayer }]
+        }
+        if (index === secondViaIndex) {
+          return [{ ...point, layer: alternateLayer }, point]
+        }
+        return [point]
+      })
+    }
 
     return {
       busId: bus.bus.busId,
