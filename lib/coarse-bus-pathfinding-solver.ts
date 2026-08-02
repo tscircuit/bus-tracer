@@ -73,7 +73,10 @@ export class CoarseBusPathfindingSolver extends BaseSolver {
     }
 
     const clearance =
-      this.options.traceClearance ?? Math.max(this.srj.minTraceWidth, 0.12)
+      this.options.traceClearance ??
+      (bus.connections.length > 2
+        ? Math.max(this.srj.minTraceWidth, 0.3)
+        : Math.max(this.srj.minTraceWidth, 0.12))
     const traceWidth = Math.max(
       this.srj.minTraceWidth,
       ...bus.connections.map(
