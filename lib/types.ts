@@ -1,4 +1,5 @@
 import type {
+  DifferentialPair as CapacityDifferentialPair,
   SimpleRouteJson as CapacitySimpleRouteJson,
   SimplifiedPcbTrace,
 } from "@tscircuit/capacity-autorouter"
@@ -12,14 +13,24 @@ export type SimpleRouteBus = {
   name?: string
   connectionNames: string[]
   maxLengthSkew?: number
+  /** Resolved copper width in millimeters for members without an override. */
+  traceWidth?: number
+  /** Layers on which this bus may be routed, including its terminal layers. */
+  allowedLayers?: string[]
   termination?: SimpleRouteBusTermination
+}
+
+export type BusTracerDifferentialPair = CapacityDifferentialPair & {
+  /** Resolved edge-to-edge copper gap in millimeters. */
+  traceGap?: number
 }
 
 export type BusTracerSimpleRouteJson = Omit<
   CapacitySimpleRouteJson,
-  "buses"
+  "buses" | "differentialPairs"
 > & {
   buses?: SimpleRouteBus[]
+  differentialPairs?: BusTracerDifferentialPair[]
 }
 
 export type RoutePoint = {
@@ -32,6 +43,8 @@ export type CoarseBusRoute = {
   busId: string
   connectionNames: string[]
   centerline: RoutePoint[]
+  /** Centerline offset for each connection, in bus order. */
+  laneCenterOffsets: number[]
   tracePitch: number
   corridorWidth: number
 }

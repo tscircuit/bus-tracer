@@ -40,11 +40,35 @@ The current `SimpleRouteJson.buses` forms from both `@tscircuit/core` and
       busId: "DATA",
       connectionNames: ["D0", "D1", "D2", "D3"],
       maxLengthSkew: 0.25,
+      traceWidth: 0.12,
+      allowedLayers: ["top", "inner1"],
       termination: { type: "boundary" },
     },
   ]
 }
 ```
+
+`traceWidth` and differential-pair `traceGap` are resolved copper dimensions in
+millimeters. The PCB stackup/impedance calculator must resolve impedance targets
+to these dimensions before invoking bus-tracer. A connection-level
+`nominalTraceWidth` takes precedence over its bus `traceWidth`.
+
+```ts
+{
+  differentialPairs: [
+    {
+      connectionNames: ["DQS_P", "DQS_N"],
+      lengthTolerance: 0.1,
+      traceGap: 0.12,
+    },
+  ]
+}
+```
+
+`allowedLayers` constrains coarse and detailed routing and must include the
+terminal layers. Differential-pair members must be adjacent in bus order so the
+router can reserve their exact edge-to-edge gap. Length constraints remain
+metadata until a dedicated tuning stage consumes them.
 
 Bus order is trace order. If `buses` is absent, all connections are treated as
 one ordered implicit bus; this supports the pre-bus-metadata samples in

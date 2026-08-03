@@ -1,8 +1,8 @@
 import { BaseSolver } from "@tscircuit/solver-utils"
 import type { GraphicsObject } from "graphics-debug"
+import { getAllowedLayers, getLaneGeometry } from "./bus-constraints"
 import { pointToSegmentDistance } from "./geometry"
 import { findGridPath } from "./grid-pathfinder"
-import { getLayerNames } from "./layer-names"
 import { createObstacleBlocker } from "./obstacle-blocker"
 import { getBusCentroids, resolveBuses } from "./resolve-buses"
 import type {
@@ -77,20 +77,12 @@ export class CoarseBusPathfindingSolver extends BaseSolver {
       (bus.connections.length > 2
         ? Math.max(this.srj.minTraceWidth, 0.3)
         : Math.max(this.srj.minTraceWidth, 0.12))
-    const traceWidth = Math.max(
-      this.srj.minTraceWidth,
-      ...bus.connections.map(
-        (connection) =>
-          connection.nominalTraceWidth ?? this.srj.nominalTraceWidth ?? 0,
-      ),
-    )
-    const tracePitch = traceWidth + clearance
+    const laneGeometry = getLaneGeometry(bus, this.srj, clearance)
+    const traceWidth = Math.max(this.srj.minTraceWidth, ...laneGeometry.widths)
+    const tracePitch = laneGeometry.maximumCenterPitch
     const obstacleMargin =
       this.options.obstacleMargin ?? this.srj.defaultObstacleMargin ?? 0.1
-    const corridorWidth =
-      traceWidth +
-      tracePitch * (bus.connections.length - 1) +
-      obstacleMargin * 2
+    const corridorWidth = laneGeometry.copperWidth + obstacleMargin * 2
     const shortestBoardSide = Math.min(
       this.srj.bounds.maxX - this.srj.bounds.minX,
       this.srj.bounds.maxY - this.srj.bounds.minY,
@@ -154,11 +146,11 @@ export class CoarseBusPathfindingSolver extends BaseSolver {
     const gridPathParams = {
       start,
       goal: end,
-      layers: getLayerNames(this.srj.layerCount),
+      layers: getAllowedLayers(bus, this.srj),
       bounds: this.srj.bounds,
       cellSize,
       viaPenalty: this.options.coarseViaPenalty ?? boardDiagonal * 0.45,
-      allowLayerChanges: this.srj.layerCount > 1,
+      allowLayerChanges: getAllowedLayers(bus, this.srj).length > 1,
     }
     let centerline: CoarseBusRoute["centerline"]
     try {
@@ -173,11 +165,11 @@ export class CoarseBusPathfindingSolver extends BaseSolver {
     // trunk an alternate layer with identical escape and return vias per lane.
     if (
       bus.connections.length > 2 &&
-      this.srj.layerCount > 1 &&
+      getAllowedLayers(bus, this.srj).length > 1 &&
       centerline.length > 3 &&
       countLayerChanges(centerline) === 0
     ) {
-      const alternateLayer = getLayerNames(this.srj.layerCount).find(
+      const alternateLayer = getAllowedLayers(bus, this.srj).find(
         (layer) => layer !== centerline[0]!.layer,
       )!
       const firstViaIndex = 1
@@ -200,6 +192,7 @@ export class CoarseBusPathfindingSolver extends BaseSolver {
       busId: bus.bus.busId,
       connectionNames: bus.connections.map((connection) => connection.name),
       centerline,
+      laneCenterOffsets: laneGeometry.laneCenterOffsets,
       tracePitch,
       corridorWidth,
     }
