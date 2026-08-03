@@ -105,18 +105,39 @@ export const getOffsetPolyline = (
   offset: number,
 ): RoutePoint[] =>
   points.map((point, index) => {
-    let previous: RoutePoint | undefined = points[index - 1]
-    let next: RoutePoint | undefined = points[index + 1]
-    if (previous?.layer !== point.layer) previous = undefined
-    if (next?.layer !== point.layer) next = undefined
-    const from = previous ?? point
-    const to = next ?? point
-    const dx = to.x - from.x
-    const dy = to.y - from.y
-    const magnitude = Math.hypot(dx, dy) || 1
+    const previous =
+      points[index - 1]?.layer === point.layer ? points[index - 1] : undefined
+    const next =
+      points[index + 1]?.layer === point.layer ? points[index + 1] : undefined
+    const getNormal = (from: Point, to: Point) => {
+      const dx = to.x - from.x
+      const dy = to.y - from.y
+      const magnitude = Math.hypot(dx, dy) || 1
+      return { x: -dy / magnitude, y: dx / magnitude }
+    }
+    const previousNormal = previous ? getNormal(previous, point) : undefined
+    const nextNormal = next ? getNormal(point, next) : undefined
+    let normal = previousNormal ?? nextNormal ?? { x: 0, y: 0 }
+    let scale = offset
+    if (previousNormal && nextNormal) {
+      const miter = {
+        x: previousNormal.x + nextNormal.x,
+        y: previousNormal.y + nextNormal.y,
+      }
+      const miterMagnitude = Math.hypot(miter.x, miter.y)
+      if (miterMagnitude > 1e-9) {
+        normal = {
+          x: miter.x / miterMagnitude,
+          y: miter.y / miterMagnitude,
+        }
+        const projection =
+          normal.x * previousNormal.x + normal.y * previousNormal.y
+        if (Math.abs(projection) > 1e-6) scale = offset / projection
+      }
+    }
     return {
-      x: point.x + (-dy / magnitude) * offset,
-      y: point.y + (dx / magnitude) * offset,
+      x: point.x + normal.x * scale,
+      y: point.y + normal.y * scale,
       layer: point.layer,
     }
   })
