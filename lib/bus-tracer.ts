@@ -3,6 +3,7 @@ import {
   definePipelineStep,
   type PipelineStep,
 } from "@tscircuit/solver-utils"
+import { PostProcessingSolver } from "@tscircuit/length-matching-solver"
 import type { GraphicsObject } from "graphics-debug"
 import {
   CoarseBusPathfindingSolver,
@@ -12,6 +13,10 @@ import {
   DetailedBusRoutingSolver,
   type DetailedBusRoutingSolverInput,
 } from "./detailed-bus-routing-solver"
+import {
+  createDdrPostProcessingBinding,
+  type DdrPostProcessingBinding,
+} from "./create-ddr-post-processing-binding"
 import type {
   BusTracerOptions,
   BusTracerOutput,
@@ -27,6 +32,8 @@ export type BusTracerInput = {
 export class BusTracer extends BasePipelineSolver<BusTracerInput> {
   coarseBusPathfindingSolver?: CoarseBusPathfindingSolver
   detailedBusRoutingSolver?: DetailedBusRoutingSolver
+  postProcessingSolver?: PostProcessingSolver
+  private ddrPostProcessingBinding: DdrPostProcessingBinding | null = null
 
   pipelineDef: PipelineStep<any>[] = [
     definePipelineStep(
@@ -51,6 +58,23 @@ export class BusTracer extends BasePipelineSolver<BusTracerInput> {
         } satisfies DetailedBusRoutingSolverInput,
       ],
     ),
+    definePipelineStep(
+      "postProcessingSolver",
+      PostProcessingSolver,
+      (solver: BusTracer) => {
+        const detailed = solver.detailedBusRoutingSolver?.getOutput()
+        if (!detailed)
+          throw new Error(
+            "BusTracer: DDR post-processing requires detailed routing output",
+          )
+        solver.ddrPostProcessingBinding = createDdrPostProcessingBinding({
+          simpleRouteJson: detailed.simpleRouteJson,
+          generatedTraces: detailed.traces,
+          fixedTraces: solver.inputProblem.simpleRouteJson.traces ?? [],
+        })
+        return [solver.ddrPostProcessingBinding.params]
+      },
+    ),
   ]
 
   constructor(input: BusTracerInput | BusTracerSimpleRouteJson) {
@@ -64,18 +88,33 @@ export class BusTracer extends BasePipelineSolver<BusTracerInput> {
   }
 
   getOutputSimpleRouteJson(): BusTracerSimpleRouteJson {
-    return (
-      this.detailedBusRoutingSolver?.getOutput().simpleRouteJson ??
-      this.inputProblem.simpleRouteJson
+    const detailed = this.detailedBusRoutingSolver?.getOutput()
+    if (!detailed) return this.inputProblem.simpleRouteJson
+    if (!this.postProcessingSolver?.solved || !this.ddrPostProcessingBinding)
+      return detailed.simpleRouteJson
+    const generatedTraces = this.ddrPostProcessingBinding.getOutputTraces(
+      this.postProcessingSolver.getOutput(),
     )
+    return {
+      ...detailed.simpleRouteJson,
+      traces: [
+        ...(this.inputProblem.simpleRouteJson.traces ?? []),
+        ...generatedTraces,
+      ],
+    }
   }
 
   override getOutput(): BusTracerOutput {
     const detailed = this.detailedBusRoutingSolver?.getOutput()
+    const simpleRouteJson = this.getOutputSimpleRouteJson()
+    const generatedTraceIds = new Set(
+      detailed?.traces.map((trace) => trace.pcb_trace_id) ?? [],
+    )
     return {
-      traces: detailed?.traces ?? [],
-      simpleRouteJson:
-        detailed?.simpleRouteJson ?? this.inputProblem.simpleRouteJson,
+      traces: (simpleRouteJson.traces ?? []).filter((trace) =>
+        generatedTraceIds.has(trace.pcb_trace_id),
+      ),
+      simpleRouteJson,
       coarseRoutes: this.coarseBusPathfindingSolver?.getOutput().buses ?? [],
     }
   }

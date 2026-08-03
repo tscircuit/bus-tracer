@@ -29,6 +29,7 @@
   },
   "dependencies": {
     "@tscircuit/capacity-autorouter": "^0.0.732",
+    "@tscircuit/length-matching-solver": "github:tscircuit/length-matching-solver#a08d3a739f4ed0f24934e7fd81f759356f91243f",
     "@tscircuit/solver-utils": "^0.0.19",
     "graphics-debug": "^0.0.96"
   },
