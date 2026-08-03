@@ -3,7 +3,13 @@ import { MinHeap } from "./min-heap"
 import type { RoutePoint } from "./types"
 
 type Bounds = { minX: number; maxX: number; minY: number; maxY: number }
-type GridState = { ix: number; iy: number; layerIndex: number }
+type GridState = {
+  ix: number
+  iy: number
+  layerIndex: number
+  viaCount: number
+  inVia: boolean
+}
 
 export type GridPathfinderParams = {
   start: RoutePoint
@@ -16,10 +22,11 @@ export type GridPathfinderParams = {
   guide?: Array<{ x: number; y: number }>
   guidePenalty?: number
   allowLayerChanges?: boolean
+  requiredViaCount?: number
 }
 
-const stateKey = (state: GridState) =>
-  `${state.ix}:${state.iy}:${state.layerIndex}`
+const stateKey = (state: GridState, includeViaState: boolean) =>
+  `${state.ix}:${state.iy}:${state.layerIndex}:${includeViaState ? state.viaCount : 0}:${includeViaState && state.inVia ? 1 : 0}`
 
 const isSamePosition = (first: RoutePoint, second: RoutePoint) =>
   first.x === second.x && first.y === second.y
@@ -85,6 +92,8 @@ export const findGridPath = (params: GridPathfinderParams): RoutePoint[] => {
       Math.min(height, Math.round((point.y - bounds.minY) / cellSize)),
     ),
     layerIndex: layers.indexOf(point.layer),
+    viaCount: 0,
+    inVia: false,
   })
   const toPoint = (state: GridState) => ({
     x: bounds.minX + state.ix * cellSize,
@@ -98,16 +107,38 @@ export const findGridPath = (params: GridPathfinderParams): RoutePoint[] => {
     )
   }
 
-  const startKey = stateKey(start)
-  const goalKey = stateKey(goal)
+  const minimumViaCount = start.layerIndex === goal.layerIndex ? 0 : 1
+  if (
+    params.requiredViaCount !== undefined &&
+    params.requiredViaCount < minimumViaCount
+  ) {
+    throw new Error(
+      `Required via count ${params.requiredViaCount} cannot connect ` +
+        `${params.start.layer} to ${params.goal.layer}`,
+    )
+  }
+
+  const getStateKey = (state: GridState) =>
+    stateKey(state, params.requiredViaCount !== undefined)
+  const startKey = getStateKey(start)
   const open = new MinHeap<GridState>()
   const gScore = new Map<string, number>([[startKey, 0]])
   const cameFrom = new Map<string, string>()
   const states = new Map<string, GridState>([[startKey, start]])
   const closed = new Set<string>()
-  const heuristic = (state: GridState) =>
-    Math.hypot(state.ix - goal.ix, state.iy - goal.iy) * cellSize +
-    Math.abs(state.layerIndex - goal.layerIndex) * params.viaPenalty
+  const heuristic = (state: GridState) => {
+    const remainingViaCost =
+      params.requiredViaCount === undefined
+        ? Math.abs(state.layerIndex - goal.layerIndex) * params.viaPenalty
+        : Math.max(
+            state.layerIndex === goal.layerIndex || state.inVia ? 0 : 1,
+            params.requiredViaCount - state.viaCount,
+          ) * params.viaPenalty
+    return (
+      Math.hypot(state.ix - goal.ix, state.iy - goal.iy) * cellSize +
+      remainingViaCost
+    )
+  }
   open.push(start, heuristic(start))
 
   const planarMoves = [
@@ -122,8 +153,16 @@ export const findGridPath = (params: GridPathfinderParams): RoutePoint[] => {
   ] as const
 
   const isStateBlocked = (state: GridState) => {
-    const key = stateKey(state)
-    if (key === startKey || key === goalKey) return false
+    if (
+      (state.ix === start.ix &&
+        state.iy === start.iy &&
+        state.layerIndex === start.layerIndex) ||
+      (state.ix === goal.ix &&
+        state.iy === goal.iy &&
+        state.layerIndex === goal.layerIndex)
+    ) {
+      return false
+    }
     return params.isBlocked(toPoint(state), layers[state.layerIndex]!)
   }
 
@@ -151,10 +190,16 @@ export const findGridPath = (params: GridPathfinderParams): RoutePoint[] => {
 
   while (open.size > 0) {
     const current = open.pop()!
-    const currentKey = stateKey(current)
+    const currentKey = getStateKey(current)
     if (closed.has(currentKey)) continue
-    if (currentKey === goalKey) {
-      const pathKeys = [goalKey]
+    const reachedGoal =
+      current.ix === goal.ix &&
+      current.iy === goal.iy &&
+      current.layerIndex === goal.layerIndex &&
+      (params.requiredViaCount === undefined ||
+        current.viaCount === params.requiredViaCount)
+    if (reachedGoal) {
+      const pathKeys = [currentKey]
       while (pathKeys[0] !== startKey) {
         const previous = cameFrom.get(pathKeys[0]!)
         if (!previous) throw new Error("Could not reconstruct the grid path")
@@ -165,16 +210,29 @@ export const findGridPath = (params: GridPathfinderParams): RoutePoint[] => {
         const point = toPoint(state)
         return { ...point, layer: layers[state.layerIndex]! }
       })
-      if (
-        route.length === 1 &&
-        (params.start.x !== params.goal.x ||
-          params.start.y !== params.goal.y ||
-          params.start.layer !== params.goal.layer)
-      ) {
-        return simplifyRoutePoints([{ ...params.start }, { ...params.goal }])
+      if (params.requiredViaCount === undefined) {
+        if (
+          route.length === 1 &&
+          (params.start.x !== params.goal.x ||
+            params.start.y !== params.goal.y ||
+            params.start.layer !== params.goal.layer)
+        ) {
+          return simplifyRoutePoints([{ ...params.start }, { ...params.goal }])
+        }
+        route[0] = { ...params.start }
+        route[route.length - 1] = { ...params.goal }
+      } else {
+        if (sameRoutePoint(route[0]!, params.start)) {
+          route[0] = { ...params.start }
+        } else {
+          route.unshift({ ...params.start })
+        }
+        if (sameRoutePoint(route.at(-1)!, params.goal)) {
+          route[route.length - 1] = { ...params.goal }
+        } else {
+          route.push({ ...params.goal })
+        }
       }
-      route[0] = { ...params.start }
-      route[route.length - 1] = { ...params.goal }
       return simplifyRoutePoints(normalizeLayerTransitions(route))
     }
     closed.add(currentKey)
@@ -185,6 +243,8 @@ export const findGridPath = (params: GridPathfinderParams): RoutePoint[] => {
         ix: current.ix + dx,
         iy: current.iy + dy,
         layerIndex: current.layerIndex,
+        viaCount: current.viaCount,
+        inVia: false,
       }
       if (
         neighbor.ix < 0 ||
@@ -208,19 +268,48 @@ export const findGridPath = (params: GridPathfinderParams): RoutePoint[] => {
 
     if (params.allowLayerChanges !== false) {
       for (const delta of [-1, 1]) {
+        const startsNewVia =
+          params.requiredViaCount !== undefined && !current.inVia
         const neighbor = {
           ...current,
           layerIndex: current.layerIndex + delta,
+          viaCount:
+            params.requiredViaCount === undefined
+              ? 0
+              : current.viaCount + (startsNewVia ? 1 : 0),
+          inVia: params.requiredViaCount !== undefined,
         }
         if (neighbor.layerIndex < 0 || neighbor.layerIndex >= layers.length)
           continue
+        if (
+          params.requiredViaCount !== undefined &&
+          neighbor.viaCount > params.requiredViaCount
+        ) {
+          continue
+        }
+        const previousKey = cameFrom.get(currentKey)
+        const previous = previousKey ? states.get(previousKey) : undefined
+        if (
+          previous &&
+          previous.ix === current.ix &&
+          previous.iy === current.iy &&
+          previous.layerIndex === neighbor.layerIndex
+        ) {
+          continue
+        }
         if (isStateBlocked(current) || isStateBlocked(neighbor)) continue
-        neighbors.push({ state: neighbor, movementCost: params.viaPenalty })
+        neighbors.push({
+          state: neighbor,
+          movementCost:
+            params.requiredViaCount === undefined || startsNewVia
+              ? params.viaPenalty
+              : 0,
+        })
       }
     }
 
     for (const { state: neighbor, movementCost } of neighbors) {
-      const neighborKey = stateKey(neighbor)
+      const neighborKey = getStateKey(neighbor)
       if (closed.has(neighborKey)) continue
       const guideCost = params.guide
         ? pointToPolylineDistance(toPoint(neighbor), params.guide) *
@@ -245,3 +334,6 @@ export const findGridPath = (params: GridPathfinderParams): RoutePoint[] => {
       `(${params.goal.x}, ${params.goal.y}, ${params.goal.layer})`,
   )
 }
+
+const sameRoutePoint = (first: RoutePoint, second: RoutePoint) =>
+  first.x === second.x && first.y === second.y && first.layer === second.layer

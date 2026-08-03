@@ -2,12 +2,13 @@ import { BaseSolver } from "@tscircuit/solver-utils"
 import type { GraphicsObject } from "graphics-debug"
 import {
   countSameLayerTraceCrossings,
+  distance,
   getOffsetPolyline,
   pointToSegmentDistance,
   simplifyRoutePoints,
 } from "./geometry"
 import { findGridPath } from "./grid-pathfinder"
-import { getLayerNames } from "./layer-names"
+import { getLayerIndex, getLayerNames } from "./layer-names"
 import { createObstacleBlocker } from "./obstacle-blocker"
 import { resolveBuses } from "./resolve-buses"
 import type {
@@ -33,6 +34,11 @@ type WireRoutePoint = Extract<
 >
 
 type SharedGuardDistances = { start: number; end: number }
+
+type Routed3dPath = {
+  path: RoutePoint[]
+  traceWidth: number
+}
 
 export class DetailedBusRoutingSolver extends BaseSolver {
   private readonly srj: BusTracerSimpleRouteJson
@@ -98,41 +104,222 @@ export class DetailedBusRoutingSolver extends BaseSolver {
       guide[guide.length - 1] = { ...connection.end }
       return guide
     })
-    this.alignAndClearSharedVias(bus, coarse, laneGuides)
-    const sharedGuardDistances =
-      bus.connections.length > 2 && countLayerChanges(coarse.centerline) > 1
-        ? getSharedGuardDistances(bus, coarse, laneGuides)
-        : undefined
+    try {
+      this.alignAndClearSharedVias(bus, coarse, laneGuides)
+      const sharedGuardDistances =
+        bus.connections.length > 2 && countLayerChanges(coarse.centerline) > 1
+          ? getSharedGuardDistances(bus, coarse, laneGuides)
+          : undefined
 
-    let lastError: unknown
-    for (const connectionOrder of getConnectionOrderCandidates(bus, coarse)) {
-      const traces: SimplifiedPcbTrace[] = []
-      try {
-        for (const connectionIndex of connectionOrder) {
-          traces.push(
-            this.routeConnection(
-              bus,
-              connectionIndex,
-              laneGuides[connectionIndex]!,
-              laneGuides,
-              coarse,
-              traces,
-              sharedGuardDistances,
-            ),
-          )
+      let lastError: unknown
+      for (const connectionOrder of getConnectionOrderCandidates(bus, coarse)) {
+        const traces: SimplifiedPcbTrace[] = []
+        try {
+          for (const connectionIndex of connectionOrder) {
+            traces.push(
+              this.routeConnection(
+                bus,
+                connectionIndex,
+                laneGuides[connectionIndex]!,
+                laneGuides,
+                coarse,
+                traces,
+                sharedGuardDistances,
+              ),
+            )
+          }
+          const crossingCount = countSameLayerTraceCrossings(traces)
+          if (crossingCount > 0) {
+            throw new Error(
+              `Bus "${bus.bus.busId}" produced ${crossingCount} same-layer trace crossings`,
+            )
+          }
+          return traces
+        } catch (error) {
+          lastError = error
         }
-        const crossingCount = countSameLayerTraceCrossings(traces)
-        if (crossingCount > 0) {
-          throw new Error(
-            `Bus "${bus.bus.busId}" produced ${crossingCount} same-layer trace crossings`,
-          )
-        }
-        return traces
-      } catch (error) {
-        lastError = error
       }
+      throw lastError
+    } catch (error) {
+      if (bus.connections.length <= 2) throw error
+      return this.routeBusIn3d(bus, coarse)
     }
-    throw lastError
+  }
+
+  private routeBusIn3d(
+    bus: ResolvedBus,
+    coarse: CoarseBusRoute,
+  ): SimplifiedPcbTrace[] {
+    const layerNames = getLayerNames(this.srj.layerCount)
+    const startLayerIndex = getLayerIndex(
+      bus.connections[0]!.start.layer,
+      this.srj.layerCount,
+    )
+    const endLayerIndex = getLayerIndex(
+      bus.connections[0]!.end.layer,
+      this.srj.layerCount,
+    )
+    // Dense endpoint permutations need one detour onto and back from a spare
+    // routing layer in addition to the transition between terminal layers.
+    const requiredViaCount = Math.max(
+      countLayerChanges(coarse.centerline),
+      (startLayerIndex === endLayerIndex ? 0 : 1) +
+        (this.srj.layerCount > 1 ? 2 : 0),
+    )
+    const priorPaths: Routed3dPath[] = []
+    const pathByConnectionIndex = new Map<number, RoutePoint[]>()
+
+    for (const connectionIndex of getConnectionOrder(bus)) {
+      const connection = bus.connections[connectionIndex]!
+      const traceWidth =
+        connection.nominalTraceWidth ??
+        this.srj.nominalTraceWidth ??
+        this.srj.minTraceWidth
+      const margin =
+        this.options.obstacleMargin ?? this.srj.defaultObstacleMargin ?? 0.1
+      const traceClearance =
+        this.options.traceClearance ?? Math.max(this.srj.minTraceWidth, 0.12)
+      const detailCellSize =
+        this.options.detailGridCellSize ?? Math.max(0.2, coarse.tracePitch / 2)
+      const searchMargin = Math.max(
+        this.options.fineSearchMargin ?? 0,
+        3,
+        coarse.corridorWidth * 2,
+      )
+      const bounds = getSearchBounds(
+        [connection.start, connection.end, ...coarse.centerline],
+        this.srj.bounds,
+        searchMargin,
+      )
+      const isBlocked = createObstacleBlocker(this.srj, {
+        padding: (point) =>
+          Math.min(
+            traceWidth / 2 + margin,
+            distance(point, connection.start),
+            distance(point, connection.end),
+          ),
+        ignoredConnectionIds: getBusConnectionIds(bus),
+        extraBlocked: (point, layer) => {
+          const terminalTaper = Math.min(
+            1,
+            distance(point, connection.start) / (traceWidth + traceClearance),
+            distance(point, connection.end) / (traceWidth + traceClearance),
+          )
+          for (const prior of priorPaths) {
+            for (let index = 0; index < prior.path.length - 1; index++) {
+              const first = prior.path[index]!
+              const second = prior.path[index + 1]!
+              if (first.layer !== layer || second.layer !== layer) continue
+              if (
+                pointToSegmentDistance(point, first, second) <
+                ((traceWidth + prior.traceWidth) / 2 + traceClearance) *
+                  terminalTaper
+              ) {
+                return true
+              }
+            }
+          }
+          return false
+        },
+      })
+      const path = findGridPath({
+        start: connection.start,
+        goal: connection.end,
+        layers: layerNames,
+        bounds,
+        cellSize: detailCellSize,
+        viaPenalty: 4,
+        isBlocked,
+        guide: coarse.centerline,
+        guidePenalty: this.options.fineGuidePenalty ?? 0.05,
+        allowLayerChanges: true,
+        requiredViaCount,
+      })
+      priorPaths.push({ path, traceWidth })
+      pathByConnectionIndex.set(connectionIndex, path)
+    }
+
+    return bus.connections.map((_, connectionIndex) =>
+      this.createTraceFrom3dPath(
+        bus,
+        connectionIndex,
+        pathByConnectionIndex.get(connectionIndex)!,
+      ),
+    )
+  }
+
+  private createTraceFrom3dPath(
+    bus: ResolvedBus,
+    connectionIndex: number,
+    path: RoutePoint[],
+  ): SimplifiedPcbTrace {
+    const connection = bus.connections[connectionIndex]!
+    const traceWidth =
+      connection.nominalTraceWidth ??
+      this.srj.nominalTraceWidth ??
+      this.srj.minTraceWidth
+    const route: SimplifiedPcbTrace["route"] = []
+    let pathIndex = 0
+    while (pathIndex < path.length) {
+      const point = path[pathIndex]!
+      route.push({
+        route_type: "wire",
+        x: point.x,
+        y: point.y,
+        width: traceWidth,
+        layer: point.layer,
+      })
+      const next = path[pathIndex + 1]
+      if (!next || next.layer === point.layer) {
+        pathIndex++
+        continue
+      }
+
+      let transitionEndIndex = pathIndex + 1
+      while (
+        transitionEndIndex + 1 < path.length &&
+        path[transitionEndIndex + 1]!.x === point.x &&
+        path[transitionEndIndex + 1]!.y === point.y &&
+        path[transitionEndIndex + 1]!.layer !== path[transitionEndIndex]!.layer
+      ) {
+        transitionEndIndex++
+      }
+      route.push({
+        route_type: "via",
+        x: point.x,
+        y: point.y,
+        from_layer: point.layer,
+        to_layer: path[transitionEndIndex]!.layer,
+        via_diameter: getViaDiameter(this.srj),
+        via_hole_diameter:
+          this.srj.min_via_hole_diameter ?? this.srj.minViaHoleDiameter,
+      })
+      pathIndex = transitionEndIndex
+    }
+
+    const firstWire = route.find(
+      (point): point is WireRoutePoint => point.route_type === "wire",
+    )
+    const lastWire = route.findLast(
+      (point): point is WireRoutePoint => point.route_type === "wire",
+    )
+    if (firstWire && connection.start.pcbPortId) {
+      firstWire.start_pcb_port_id = connection.start.pcbPortId
+    }
+    if (lastWire && connection.end.pcbPortId) {
+      lastWire.end_pcb_port_id = connection.end.pcbPortId
+    }
+
+    return {
+      type: "pcb_trace",
+      pcb_trace_id: `pcb_trace_bus_tracer_${this.nextBusIndex}_${connectionIndex}`,
+      connection_name: connection.name,
+      connectsTo: [
+        connection.start.pointId ?? connection.start.pcbPortId,
+        connection.end.pointId ?? connection.end.pcbPortId,
+      ].filter((id): id is string => Boolean(id)),
+      route,
+    }
   }
 
   private alignAndClearSharedVias(
@@ -879,6 +1066,26 @@ const getConnectionOrderCandidates = (
   }
   addPermutations([], naturalOrder)
   return candidates
+}
+
+const getConnectionOrder = (bus: ResolvedBus) => {
+  const connectionOrder = bus.connections.map((_, index) => index)
+  if (bus.connections.length <= 2) return connectionOrder
+  const startXSpan =
+    Math.max(...bus.connections.map((connection) => connection.start.x)) -
+    Math.min(...bus.connections.map((connection) => connection.start.x))
+  const startYSpan =
+    Math.max(...bus.connections.map((connection) => connection.start.y)) -
+    Math.min(...bus.connections.map((connection) => connection.start.y))
+  const startAxis = startXSpan >= startYSpan ? "x" : "y"
+  // Route neighboring fanout terminals in physical order. Input connection
+  // order is semantic and may otherwise make the greedy search cross escapes.
+  connectionOrder.sort(
+    (first, second) =>
+      bus.connections[first]!.start[startAxis] -
+      bus.connections[second]!.start[startAxis],
+  )
+  return connectionOrder
 }
 
 const getTerminalAxisOrder = (points: RoutePoint[]) => {

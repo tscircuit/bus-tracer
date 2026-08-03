@@ -3,7 +3,7 @@ import { getLayerIndex } from "./layer-names"
 import type { BusTracerSimpleRouteJson } from "./types"
 
 type BlockerOptions = {
-  padding: number
+  padding: number | ((point: { x: number; y: number }, layer: string) => number)
   ignoredConnectionIds?: Set<string>
   ignoreObstacleShortSideBelow?: number
   extraBlocked?: (point: { x: number; y: number }, layer: string) => boolean
@@ -41,7 +41,11 @@ export const createObstacleBlocker = (
         continue
       }
       if (obstacle.connectedTo.some((id) => ignoredIds.has(id))) continue
-      if (isPointInsideObstacle(point, obstacle, options.padding)) return true
+      const padding =
+        typeof options.padding === "function"
+          ? options.padding(point, layer)
+          : options.padding
+      if (isPointInsideObstacle(point, obstacle, padding)) return true
     }
     return false
   }
