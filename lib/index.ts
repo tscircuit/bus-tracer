@@ -9,6 +9,7 @@ export {
 } from "./detailed-bus-routing-solver"
 export { resolveBuses } from "./resolve-buses"
 export type {
+  BusTracerDifferentialPair,
   BusTracerOptions,
   BusTracerOutput,
   BusTracerSimpleRouteJson,

@@ -1,5 +1,6 @@
 import { BaseSolver } from "@tscircuit/solver-utils"
 import type { GraphicsObject } from "graphics-debug"
+import { getAllowedLayers, getConnectionTraceWidth } from "./bus-constraints"
 import {
   countSameLayerTraceCrossings,
   getOffsetPolyline,
@@ -400,10 +401,7 @@ export class DetailedBusRoutingSolver extends BaseSolver {
       coarse,
     )
     const connection = bus.connections[connectionIndex]!
-    const traceWidth =
-      connection.nominalTraceWidth ??
-      this.srj.nominalTraceWidth ??
-      this.srj.minTraceWidth
+    const traceWidth = getConnectionTraceWidth(connection, bus, this.srj)
     const margin =
       this.options.obstacleMargin ?? this.srj.defaultObstacleMargin ?? 0.1
     const traceClearance =
@@ -575,7 +573,7 @@ export class DetailedBusRoutingSolver extends BaseSolver {
           path = findGridPath({
             start: segment.points[0]!,
             goal: segment.points.at(-1)!,
-            layers: getLayerNames(this.srj.layerCount),
+            layers: getAllowedLayers(bus, this.srj),
             bounds: boundedSearch,
             cellSize: detailCellSize,
             viaPenalty: 1e6,
@@ -589,7 +587,7 @@ export class DetailedBusRoutingSolver extends BaseSolver {
           path = findGridPath({
             start: segment.points[0]!,
             goal: segment.points.at(-1)!,
-            layers: getLayerNames(this.srj.layerCount),
+            layers: getAllowedLayers(bus, this.srj),
             bounds: this.srj.bounds,
             cellSize: detailCellSize,
             viaPenalty: 1e6,
@@ -928,11 +926,10 @@ const getLegacyOffsetPolyline = (points: RoutePoint[], offset: number) =>
 
 const getLaneGuides = (bus: ResolvedBus, coarse: CoarseBusRoute) => {
   const traceCount = bus.connections.length
-  const middleRank = (traceCount - 1) / 2
   if (!shouldUsePermutationAwareRouting(bus, coarse)) {
     const laneSign = getLaneSignAtBusStart(bus, coarse)
     return bus.connections.map((connection, index) => {
-      const offset = (index - middleRank) * coarse.tracePitch * laneSign
+      const offset = coarse.laneCenterOffsets[index]! * laneSign
       const guide = getLegacyOffsetPolyline(coarse.centerline, offset)
       guide[0] = { ...connection.start }
       guide[guide.length - 1] = { ...connection.end }
@@ -968,19 +965,15 @@ const getLaneGuides = (bus: ResolvedBus, coarse: CoarseBusRoute) => {
     return bus.connections.map((connection, connectionIndex) => {
       const startGuide = getOffsetPolyline(
         coarse.centerline,
-        (startRanks[connectionIndex]! - middleRank) *
-          coarse.tracePitch *
-          startLaneSign,
+        coarse.laneCenterOffsets[startRanks[connectionIndex]!]! * startLaneSign,
       )
       const trunkGuide = getOffsetPolyline(
         coarse.centerline,
-        (connectionIndex - middleRank) * coarse.tracePitch * trunkLaneSign,
+        coarse.laneCenterOffsets[connectionIndex]! * trunkLaneSign,
       )
       const endGuide = getOffsetPolyline(
         coarse.centerline,
-        (endRanks[connectionIndex]! - middleRank) *
-          coarse.tracePitch *
-          endLaneSign,
+        coarse.laneCenterOffsets[endRanks[connectionIndex]!]! * endLaneSign,
       )
       const guide = coarse.centerline.map((_, pointIndex) => {
         if (pointIndex <= firstLayerChange) return startGuide[pointIndex]!
@@ -995,7 +988,7 @@ const getLaneGuides = (bus: ResolvedBus, coarse: CoarseBusRoute) => {
   if (layerChangeIndices.length !== 1 || traceCount <= 2) {
     const laneSign = getLaneSignAtBusStart(bus, coarse)
     return bus.connections.map((connection, index) => {
-      const offset = (index - middleRank) * coarse.tracePitch * laneSign
+      const offset = coarse.laneCenterOffsets[index]! * laneSign
       const guide = getLegacyOffsetPolyline(coarse.centerline, offset)
       guide[0] = { ...connection.start }
       guide[guide.length - 1] = { ...connection.end }
@@ -1004,7 +997,6 @@ const getLaneGuides = (bus: ResolvedBus, coarse: CoarseBusRoute) => {
   }
 
   const layerChangeIndex = layerChangeIndices[0]!
-  const detailedLanePitch = coarse.tracePitch
   const layerChangeCenter = coarse.centerline[layerChangeIndex]!
   const startPoints = bus.connections.map((connection) => connection.start)
   const endPoints = bus.connections.map((connection) => connection.end)
@@ -1022,7 +1014,7 @@ const getLaneGuides = (bus: ResolvedBus, coarse: CoarseBusRoute) => {
   if (terminalPermutationIsStable || traceCount <= 3) {
     const laneSign = getLaneSignAtBusStart(bus, coarse)
     return bus.connections.map((connection, index) => {
-      const offset = (index - middleRank) * coarse.tracePitch * laneSign
+      const offset = coarse.laneCenterOffsets[index]! * laneSign
       const guide = getLegacyOffsetPolyline(coarse.centerline, offset)
       guide[0] = { ...connection.start }
       guide[guide.length - 1] = { ...connection.end }
@@ -1066,15 +1058,11 @@ const getLaneGuides = (bus: ResolvedBus, coarse: CoarseBusRoute) => {
   return bus.connections.map((connection, connectionIndex) => {
     const startGuide = getOffsetPolyline(
       coarse.centerline,
-      (startRanks[connectionIndex]! - middleRank) *
-        detailedLanePitch *
-        startLaneSign,
+      coarse.laneCenterOffsets[startRanks[connectionIndex]!]! * startLaneSign,
     )
     const endGuide = getOffsetPolyline(
       coarse.centerline,
-      (endRanks[connectionIndex]! - middleRank) *
-        detailedLanePitch *
-        endLaneSign,
+      coarse.laneCenterOffsets[endRanks[connectionIndex]!]! * endLaneSign,
     )
     const guide = coarse.centerline.map((_, pointIndex) =>
       pointIndex <= layerChangeIndex

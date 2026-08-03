@@ -1,4 +1,5 @@
 import { distance } from "./geometry"
+import { validateBusConstraints } from "./bus-constraints"
 import type {
   BusTracerSimpleRouteJson,
   ResolvedBus,
@@ -107,7 +108,9 @@ export const resolveBuses = (srj: BusTracerSimpleRouteJson): ResolvedBus[] => {
       }
     }
 
-    return { bus, connections }
+    const resolvedBus = { bus, connections }
+    validateBusConstraints(resolvedBus, srj)
+    return resolvedBus
   })
 }
 
