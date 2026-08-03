@@ -1,6 +1,7 @@
 import { BaseSolver } from "@tscircuit/solver-utils"
 import type { GraphicsObject } from "graphics-debug"
 import {
+  countSameLayerTraceCrossings,
   getOffsetPolyline,
   pointToSegmentDistance,
   simplifyRoutePoints,
@@ -103,25 +104,35 @@ export class DetailedBusRoutingSolver extends BaseSolver {
         ? getSharedGuardDistances(bus, coarse, laneGuides)
         : undefined
 
-    const traces: SimplifiedPcbTrace[] = []
-    const connectionOrder = Array.from(
-      { length: bus.connections.length },
-      (_, index) => index,
-    )
-    if (areTerminalArraysPerpendicular(bus)) connectionOrder.reverse()
-    for (const connectionIndex of connectionOrder) {
-      traces.push(
-        this.routeConnection(
-          bus,
-          connectionIndex,
-          laneGuides[connectionIndex]!,
-          coarse,
-          traces,
-          sharedGuardDistances,
-        ),
-      )
+    let lastError: unknown
+    for (const connectionOrder of getConnectionOrderCandidates(bus, coarse)) {
+      const traces: SimplifiedPcbTrace[] = []
+      try {
+        for (const connectionIndex of connectionOrder) {
+          traces.push(
+            this.routeConnection(
+              bus,
+              connectionIndex,
+              laneGuides[connectionIndex]!,
+              laneGuides,
+              coarse,
+              traces,
+              sharedGuardDistances,
+            ),
+          )
+        }
+        const crossingCount = countSameLayerTraceCrossings(traces)
+        if (crossingCount > 0) {
+          throw new Error(
+            `Bus "${bus.bus.busId}" produced ${crossingCount} same-layer trace crossings`,
+          )
+        }
+        return traces
+      } catch (error) {
+        lastError = error
+      }
     }
-    return traces
+    throw lastError
   }
 
   private alignAndClearSharedVias(
@@ -147,23 +158,43 @@ export class DetailedBusRoutingSolver extends BaseSolver {
       if (before.layer === after.layer) continue
 
       const layerChangePosition = layerChangeIndices.indexOf(index)
+      const startTerminalPoints = bus.connections.map(
+        (connection) => connection.start,
+      )
+      const endTerminalPoints = bus.connections.map(
+        (connection) => connection.end,
+      )
+      const isSingleChangeCloserToStart =
+        layerChangeIndices.length === 1 &&
+        Math.hypot(
+          before.x - getPointCentroid(startTerminalPoints).x,
+          before.y - getPointCentroid(startTerminalPoints).y,
+        ) <=
+          Math.hypot(
+            before.x - getPointCentroid(endTerminalPoints).x,
+            before.y - getPointCentroid(endTerminalPoints).y,
+          )
       const terminalPoints =
         bus.connections.length > 2 &&
-        layerChangeIndices.length > 1 &&
-        layerChangePosition === 0
-          ? bus.connections.map((connection) => connection.start)
+        layerChangePosition === 0 &&
+        (layerChangeIndices.length > 1 || isSingleChangeCloserToStart)
+          ? startTerminalPoints
           : bus.connections.length > 2 &&
-              layerChangeIndices.length > 1 &&
-              layerChangePosition === layerChangeIndices.length - 1
-            ? bus.connections.map((connection) => connection.end)
+              layerChangePosition === layerChangeIndices.length - 1 &&
+              (layerChangeIndices.length > 1 || !isSingleChangeCloserToStart)
+            ? endTerminalPoints
             : undefined
       const baseLanePoints = terminalPoints
         ? getTerminalAlignedViaPoints(
             { x: before.x, y: before.y },
             terminalPoints,
+            terminalPoints === startTerminalPoints
+              ? endTerminalPoints
+              : startTerminalPoints,
             coarse.tracePitch,
             viaDiameter,
             Math.max(margin, 0.1),
+            layerChangeIndices.length === 1,
           )
         : laneGuides.map((guide) => ({
             x: (guide[index]!.x + guide[index + 1]!.x) / 2,
@@ -229,6 +260,7 @@ export class DetailedBusRoutingSolver extends BaseSolver {
     bus: ResolvedBus,
     connectionIndex: number,
     guide: RoutePoint[],
+    allLaneGuides: RoutePoint[][],
     coarse: CoarseBusRoute,
     priorBusTraces: SimplifiedPcbTrace[],
     sharedGuardDistances?: SharedGuardDistances,
@@ -242,10 +274,49 @@ export class DetailedBusRoutingSolver extends BaseSolver {
       this.options.obstacleMargin ?? this.srj.defaultObstacleMargin ?? 0.1
     const detailCellSize =
       this.options.detailGridCellSize ?? Math.max(0.2, coarse.tracePitch / 2)
-    const ignoredIds = getConnectionIds(connection)
+    // Closely pitched fanout terminals can have overlapping clearance halos.
+    // All terminals owned by this bus form one fanout region; blocking sibling
+    // terminals would make a connection start inside an obstacle before it has
+    // a chance to escape the array. Unrelated pads and component keepouts are
+    // still handled by the obstacle blocker.
+    const connectionIds = getConnectionIds(connection)
+    const terminalBlocker = createObstacleBlocker(this.srj, {
+      padding: traceWidth / 2 + margin,
+      ignoredConnectionIds: connectionIds,
+    })
+    const ignoredIds =
+      terminalBlocker(connection.start, connection.start.layer) ||
+      terminalBlocker(connection.end, connection.end.layer)
+        ? getBusConnectionIds(bus)
+        : connectionIds
     const traceClearance =
       this.options.traceClearance ?? Math.max(this.srj.minTraceWidth, 0.12)
+    const viaDiameter = getViaDiameter(this.srj)
     const extraBlocked = (point: { x: number; y: number }, layer: string) => {
+      if (countLayerChanges(coarse.centerline) === 1) {
+        for (
+          let otherConnectionIndex = 0;
+          otherConnectionIndex < allLaneGuides.length;
+          otherConnectionIndex++
+        ) {
+          if (otherConnectionIndex === connectionIndex) continue
+          const otherGuide = allLaneGuides[otherConnectionIndex]!
+          for (let index = 0; index < otherGuide.length - 1; index++) {
+            const before = otherGuide[index]!
+            const after = otherGuide[index + 1]!
+            if (before.layer === after.layer) continue
+            if (!viaSpansLayer(before.layer, after.layer, layer, this.srj)) {
+              continue
+            }
+            if (
+              Math.hypot(point.x - before.x, point.y - before.y) <
+              viaDiameter / 2 + traceWidth / 2 + traceClearance
+            ) {
+              return true
+            }
+          }
+        }
+      }
       if (
         !areTerminalArraysPerpendicular(bus) &&
         layer !== connection.start.layer &&
@@ -447,11 +518,15 @@ const getViaDiameter = (srj: BusTracerSimpleRouteJson) =>
 const getTerminalAlignedViaPoints = (
   center: { x: number; y: number },
   terminalPoints: RoutePoint[],
+  oppositeTerminalPoints: RoutePoint[],
   tracePitch: number,
   viaDiameter: number,
   clearance: number,
+  useTwoDimensionalField: boolean,
 ) => {
-  const direction = getTerminalArrayDirection(terminalPoints)
+  const direction = useTwoDimensionalField
+    ? getStableTerminalArrayDirection(terminalPoints)
+    : getTerminalArrayDirection(terminalPoints)
   const terminalCenter = getPointCentroid(terminalPoints)
   const escapeDirection = getPerpendicularDirectionToward(
     direction,
@@ -481,17 +556,49 @@ const getTerminalAlignedViaPoints = (
       ),
   )
   const viaPitch = Math.max(tracePitch, terminalPitch, viaDiameter + clearance)
-  const stagger = Math.min(viaPitch / 2, viaDiameter * 0.75)
   const middleIndex = (terminalPoints.length - 1) / 2
+  if (!useTwoDimensionalField) {
+    const stagger = Math.min(viaPitch / 2, viaDiameter * 0.75)
+    return terminalPoints.map((terminalPoint, index) => {
+      const terminalLaneOffset =
+        (terminalPoint.x - terminalCenter.x) * direction.x +
+        (terminalPoint.y - terminalCenter.y) * direction.y
+      const laneOffset =
+        viaPitch > terminalPitch + 1e-6
+          ? (index - middleIndex) * viaPitch
+          : terminalLaneOffset
+      const staggerOffset = (index % 2 === 0 ? -1 : 1) * (stagger / 2)
+      return {
+        x:
+          adjustedCenter.x +
+          direction.x * laneOffset +
+          escapeDirection.x * staggerOffset,
+        y:
+          adjustedCenter.y +
+          direction.y * laneOffset +
+          escapeDirection.y * staggerOffset,
+      }
+    })
+  }
+
+  const terminalRanks = getPointRanksAlongDirection(terminalPoints, direction)
+  const oppositeDirection = getStableTerminalArrayDirection(
+    oppositeTerminalPoints,
+  )
+  const arraysArePerpendicular =
+    Math.abs(
+      direction.x * oppositeDirection.x + direction.y * oppositeDirection.y,
+    ) < 0.5
+  const oppositeRanks = getPointRanksAlongDirection(
+    oppositeTerminalPoints,
+    oppositeDirection,
+  )
+  const stagger = Math.min(viaPitch / 2, viaDiameter * 0.75)
   return terminalPoints.map((terminalPoint, index) => {
-    const terminalLaneOffset =
-      (terminalPoint.x - terminalCenter.x) * direction.x +
-      (terminalPoint.y - terminalCenter.y) * direction.y
-    const laneOffset =
-      viaPitch > terminalPitch + 1e-6
-        ? (index - middleIndex) * viaPitch
-        : terminalLaneOffset
-    const staggerOffset = (index % 2 === 0 ? -1 : 1) * (stagger / 2)
+    const laneOffset = (terminalRanks[index]! - middleIndex) * viaPitch
+    const staggerOffset = arraysArePerpendicular
+      ? (oppositeRanks[index]! - middleIndex) * viaPitch
+      : (index % 2 === 0 ? -1 : 1) * (stagger / 2)
     return {
       x:
         adjustedCenter.x +
@@ -512,6 +619,51 @@ const getTerminalArrayDirection = (terminalPoints: RoutePoint[]) => {
   const dy = last.y - first.y
   const magnitude = Math.hypot(dx, dy) || 1
   return { x: dx / magnitude, y: dy / magnitude }
+}
+
+const getStableTerminalArrayDirection = (terminalPoints: RoutePoint[]) => {
+  let first = terminalPoints[0]!
+  let last = terminalPoints.at(-1)!
+  let maximumDistance = -1
+  for (let firstIndex = 0; firstIndex < terminalPoints.length; firstIndex++) {
+    for (
+      let secondIndex = firstIndex + 1;
+      secondIndex < terminalPoints.length;
+      secondIndex++
+    ) {
+      const candidateFirst = terminalPoints[firstIndex]!
+      const candidateLast = terminalPoints[secondIndex]!
+      const candidateDistance = Math.hypot(
+        candidateLast.x - candidateFirst.x,
+        candidateLast.y - candidateFirst.y,
+      )
+      if (candidateDistance <= maximumDistance) continue
+      maximumDistance = candidateDistance
+      first = candidateFirst
+      last = candidateLast
+    }
+  }
+  const dx = last.x - first.x
+  const dy = last.y - first.y
+  const magnitude = Math.hypot(dx, dy) || 1
+  return { x: dx / magnitude, y: dy / magnitude }
+}
+
+const getPointRanksAlongDirection = (
+  points: RoutePoint[],
+  direction: { x: number; y: number },
+) => {
+  const ranks = Array.from({ length: points.length }, () => 0)
+  points
+    .map((point, index) => ({
+      index,
+      projection: point.x * direction.x + point.y * direction.y,
+    }))
+    .sort((first, second) => first.projection - second.projection)
+    .forEach(({ index }, rank) => {
+      ranks[index] = rank
+    })
+  return ranks
 }
 
 const getPointCentroid = (points: Array<{ x: number; y: number }>) => ({
@@ -563,6 +715,14 @@ const getConnectionIds = (connection: ResolvedBus["connections"][number]) =>
       connection.end.pcbPortId,
     ].filter((id): id is string => Boolean(id)),
   )
+
+const getBusConnectionIds = (bus: ResolvedBus) => {
+  const ids = new Set<string>()
+  for (const connection of bus.connections) {
+    for (const id of getConnectionIds(connection)) ids.add(id)
+  }
+  return ids
+}
 
 const splitGuideByLayerChanges = (guide: RoutePoint[]) => {
   const segments: Array<{
@@ -662,6 +822,79 @@ const areTerminalArraysPerpendicular = (bus: ResolvedBus) => {
   )
 }
 
+const getConnectionOrderCandidates = (
+  bus: ResolvedBus,
+  coarse: CoarseBusRoute,
+) => {
+  const naturalOrder = bus.connections.map((_, index) => index)
+  const startTerminalOrder = getTerminalAxisOrder(
+    bus.connections.map((connection) => connection.start),
+  )
+  const endTerminalOrder = getTerminalAxisOrder(
+    bus.connections.map((connection) => connection.end),
+  )
+  const terminalArraysArePerpendicular = areTerminalArraysPerpendicular(bus)
+  const legacyPreferredOrder = terminalArraysArePerpendicular
+    ? [...naturalOrder].reverse()
+    : naturalOrder
+  const preferredOrder = terminalArraysArePerpendicular
+    ? endTerminalOrder
+    : naturalOrder
+  if (bus.connections.length > 3) {
+    return [
+      countLayerChanges(coarse.centerline) === 1
+        ? preferredOrder
+        : legacyPreferredOrder,
+    ]
+  }
+
+  const candidates: number[][] = []
+  const seen = new Set<string>()
+  const addCandidate = (candidate: number[]) => {
+    const key = candidate.join(":")
+    if (seen.has(key)) return
+    seen.add(key)
+    candidates.push(candidate)
+  }
+  addCandidate(legacyPreferredOrder)
+  addCandidate([...legacyPreferredOrder].reverse())
+  addCandidate(preferredOrder)
+  addCandidate([...preferredOrder].reverse())
+  addCandidate(startTerminalOrder)
+  addCandidate([...startTerminalOrder].reverse())
+  addCandidate(endTerminalOrder)
+  addCandidate([...endTerminalOrder].reverse())
+
+  const addPermutations = (prefix: number[], remaining: number[]) => {
+    if (remaining.length === 0) {
+      addCandidate(prefix)
+      return
+    }
+    for (let index = 0; index < remaining.length; index++) {
+      addPermutations(
+        [...prefix, remaining[index]!],
+        [...remaining.slice(0, index), ...remaining.slice(index + 1)],
+      )
+    }
+  }
+  addPermutations([], naturalOrder)
+  return candidates
+}
+
+const getTerminalAxisOrder = (points: RoutePoint[]) => {
+  const xRange =
+    Math.max(...points.map((point) => point.x)) -
+    Math.min(...points.map((point) => point.x))
+  const yRange =
+    Math.max(...points.map((point) => point.y)) -
+    Math.min(...points.map((point) => point.y))
+  const coordinate = xRange >= yRange ? "x" : "y"
+  return points
+    .map((point, index) => ({ coordinate: point[coordinate], index }))
+    .sort((first, second) => first.coordinate - second.coordinate)
+    .map(({ index }) => index)
+}
+
 const countLayerChanges = (points: RoutePoint[]) =>
   points
     .slice(0, -1)
@@ -670,6 +903,22 @@ const countLayerChanges = (points: RoutePoint[]) =>
         count + (point.layer === points[index + 1]!.layer ? 0 : 1),
       0,
     )
+
+const viaSpansLayer = (
+  fromLayer: string,
+  toLayer: string,
+  layer: string,
+  srj: BusTracerSimpleRouteJson,
+) => {
+  const layers = getLayerNames(srj.layerCount)
+  const fromIndex = layers.indexOf(fromLayer)
+  const toIndex = layers.indexOf(toLayer)
+  const layerIndex = layers.indexOf(layer)
+  return (
+    layerIndex >= Math.min(fromIndex, toIndex) &&
+    layerIndex <= Math.max(fromIndex, toIndex)
+  )
+}
 
 const getSharedGuardDistances = (
   bus: ResolvedBus,

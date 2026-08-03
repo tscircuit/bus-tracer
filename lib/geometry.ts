@@ -1,4 +1,8 @@
-import type { BusTracerSimpleRouteJson, RoutePoint } from "./types"
+import type {
+  BusTracerSimpleRouteJson,
+  RoutePoint,
+  SimplifiedPcbTrace,
+} from "./types"
 
 export type Point = { x: number; y: number }
 
@@ -123,4 +127,60 @@ export const getPolylineLength = (points: Point[]) => {
     length += distance(points[index]!, points[index + 1]!)
   }
   return length
+}
+
+export const countSameLayerTraceCrossings = (traces: SimplifiedPcbTrace[]) => {
+  const segments = traces.flatMap((trace) =>
+    trace.route.slice(0, -1).flatMap((first, index) => {
+      const second = trace.route[index + 1]!
+      if (
+        first.route_type !== "wire" ||
+        second.route_type !== "wire" ||
+        first.layer !== second.layer
+      ) {
+        return []
+      }
+      return [{ first, second, connectionName: trace.connection_name }]
+    }),
+  )
+
+  let crossings = 0
+  for (let firstIndex = 0; firstIndex < segments.length; firstIndex++) {
+    for (
+      let secondIndex = firstIndex + 1;
+      secondIndex < segments.length;
+      secondIndex++
+    ) {
+      const first = segments[firstIndex]!
+      const second = segments[secondIndex]!
+      if (
+        first.connectionName === second.connectionName ||
+        first.first.layer !== second.first.layer
+      ) {
+        continue
+      }
+      if (
+        segmentsStrictlyIntersect(
+          first.first,
+          first.second,
+          second.first,
+          second.second,
+        )
+      ) {
+        crossings++
+      }
+    }
+  }
+  return crossings
+}
+
+const segmentsStrictlyIntersect = (a: Point, b: Point, c: Point, d: Point) => {
+  const orientation = (first: Point, second: Point, third: Point) =>
+    (second.x - first.x) * (third.y - first.y) -
+    (second.y - first.y) * (third.x - first.x)
+  const epsilon = 1e-8
+  return (
+    orientation(a, b, c) * orientation(a, b, d) < -epsilon &&
+    orientation(c, d, a) * orientation(c, d, b) < -epsilon
+  )
 }

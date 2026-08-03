@@ -21,6 +21,56 @@ export type GridPathfinderParams = {
 const stateKey = (state: GridState) =>
   `${state.ix}:${state.iy}:${state.layerIndex}`
 
+const isSamePosition = (first: RoutePoint, second: RoutePoint) =>
+  first.x === second.x && first.y === second.y
+
+/**
+ * Keep every layer change at one physical coordinate. A grid path can change
+ * through several adjacent layer states at the same cell, but that represents
+ * one plated through-via in the routed output rather than a stack of vias.
+ *
+ * Replacing the first and last grid points with the exact terminals can also
+ * move one endpoint away from a layer change. Add a short planar escape before
+ * collapsing the layer stack so we never emit a diagonal layer transition.
+ */
+const normalizeLayerTransitions = (points: RoutePoint[]) => {
+  const normalized = points.map((point) => ({ ...point }))
+  if (normalized.length < 2) return normalized
+
+  const first = normalized[0]!
+  const second = normalized[1]!
+  if (first.layer !== second.layer && !isSamePosition(first, second)) {
+    normalized.splice(1, 0, { ...second, layer: first.layer })
+  }
+
+  const last = normalized.at(-1)!
+  const penultimate = normalized.at(-2)!
+  if (penultimate.layer !== last.layer && !isSamePosition(penultimate, last)) {
+    normalized.splice(normalized.length - 1, 0, {
+      ...last,
+      layer: penultimate.layer,
+    })
+  }
+
+  const collapsed: RoutePoint[] = []
+  for (let startIndex = 0; startIndex < normalized.length; ) {
+    let endIndex = startIndex + 1
+    while (
+      endIndex < normalized.length &&
+      isSamePosition(normalized[startIndex]!, normalized[endIndex]!)
+    ) {
+      endIndex++
+    }
+    collapsed.push(normalized[startIndex]!)
+    if (endIndex - startIndex > 1) {
+      collapsed.push(normalized[endIndex - 1]!)
+    }
+    startIndex = endIndex
+  }
+
+  return collapsed
+}
+
 export const findGridPath = (params: GridPathfinderParams): RoutePoint[] => {
   const { bounds, cellSize, layers } = params
   const width = Math.max(1, Math.round((bounds.maxX - bounds.minX) / cellSize))
@@ -125,7 +175,7 @@ export const findGridPath = (params: GridPathfinderParams): RoutePoint[] => {
       }
       route[0] = { ...params.start }
       route[route.length - 1] = { ...params.goal }
-      return simplifyRoutePoints(route)
+      return simplifyRoutePoints(normalizeLayerTransitions(route))
     }
     closed.add(currentKey)
 

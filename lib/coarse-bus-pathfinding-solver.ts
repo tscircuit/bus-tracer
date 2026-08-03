@@ -122,27 +122,53 @@ export class CoarseBusPathfindingSolver extends BaseSolver {
       }
       return false
     }
-    const isBlocked = createObstacleBlocker(this.srj, {
+    const isCorridorBlocked = createObstacleBlocker(this.srj, {
       padding: corridorWidth / 2,
       ignoredConnectionIds: ignoredIds,
       ignoreObstacleShortSideBelow:
         this.options.coarseIgnoreObstacleShortSideBelow ?? cellSize * 1.25,
       extraBlocked,
     })
+    const isTerminalEscapeBlocked = createObstacleBlocker(this.srj, {
+      padding: traceWidth / 2 + obstacleMargin,
+      ignoredConnectionIds: ignoredIds,
+      ignoreObstacleShortSideBelow:
+        this.options.coarseIgnoreObstacleShortSideBelow ?? cellSize * 1.25,
+      extraBlocked,
+    })
+    const terminalEscapeLength = Math.max(cellSize * 2, corridorWidth)
+    const isBlocked = (point: { x: number; y: number }, layer: string) => {
+      const isNearTerminal =
+        Math.hypot(point.x - start.x, point.y - start.y) <=
+          terminalEscapeLength ||
+        Math.hypot(point.x - end.x, point.y - end.y) <= terminalEscapeLength
+      if (isNearTerminal && !isTerminalEscapeBlocked(point, layer)) {
+        return false
+      }
+      return isCorridorBlocked(point, layer)
+    }
     const boardDiagonal = Math.hypot(
       this.srj.bounds.maxX - this.srj.bounds.minX,
       this.srj.bounds.maxY - this.srj.bounds.minY,
     )
-    let centerline = findGridPath({
+    const gridPathParams = {
       start,
       goal: end,
       layers: getLayerNames(this.srj.layerCount),
       bounds: this.srj.bounds,
       cellSize,
       viaPenalty: this.options.coarseViaPenalty ?? boardDiagonal * 0.45,
-      isBlocked,
       allowLayerChanges: this.srj.layerCount > 1,
-    })
+    }
+    let centerline: CoarseBusRoute["centerline"]
+    try {
+      centerline = findGridPath({
+        ...gridPathParams,
+        isBlocked: isCorridorBlocked,
+      })
+    } catch {
+      centerline = findGridPath({ ...gridPathParams, isBlocked })
+    }
     // Keep dense fanouts on their terminal layer while giving the shared bus
     // trunk an alternate layer with identical escape and return vias per lane.
     if (

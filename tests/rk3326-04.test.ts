@@ -9,7 +9,7 @@ import {
 
 test("rk3326-04 captures the 10-line MIPI DSI bus challenge between fanouts", async () => {
   const result = solveRk3326Repro(rk3326_04)
-  expect(result.error?.message).toContain("No path found")
+  expect(result.error).toBeDefined()
   expect(result.solver.getOutput().traces).toHaveLength(0)
   const svg = getSvgFromGraphicsObject(visualizeRk3326Repro(rk3326_04, result))
   await expect(svg).toMatchSvgSnapshot(import.meta.path)
